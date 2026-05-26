@@ -1,0 +1,5 @@
+# Local hook config (user-specific path)
+.claude/settings.json
+
+# Claude Code auto-generated permissions
+.claude/settings.local.json
