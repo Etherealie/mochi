@@ -1,12 +1,12 @@
 # mochi.ps1 - Claude Code Win11-style Notification via WPF
 
 # ============================================================
-# CUSTOMIZE notification content
-#   $ToolName     - e.g. "Write", "Edit", "Bash"
-#   $FilePath     - file path (may be "")
-#   $EventMessage - raw message from Claude Code (may be "")
+# CUSTOMIZE
 # ============================================================
 $Title = "Mochi"
+$DisplaySeconds = 5
+$EnterDuration  = 400
+$ExitDuration   = 250
 
 function Get-Body {
     param($ToolName, $FilePath, $EventMessage)
@@ -20,37 +20,53 @@ function Get-Body {
 }
 
 # ============================================================
-# Animation settings
+# Read stdin
 # ============================================================
-$DisplaySeconds = 5
-$EnterDuration  = 400   # ms, entrance slide + fade
-$ExitDuration   = 250   # ms, exit fade
-
-# ============================================================
-# Implementation
-# ============================================================
-
-# Read event JSON from stdin
 $rawInput = [Console]::In.ReadToEnd()
+
+# ============================================================
+# Parse event JSON
+# ============================================================
 $ToolName     = ""
 $FilePath     = ""
 $EventMessage = ""
 
-if ($rawInput) {
+if ($rawInput -and $rawInput.Trim()) {
     try {
-        $data = $rawInput | ConvertFrom-Json
+        $data = $rawInput | ConvertFrom-Json -ErrorAction Stop
         if ($data.tool_name) { $ToolName = $data.tool_name }
         if ($data.tool_input -and $data.tool_input.file_path) {
             $FilePath = $data.tool_input.file_path
         }
         if ($data.message) { $EventMessage = $data.message }
-    } catch {}
+    } catch {
+        $EventMessage = $rawInput.Substring(0, [Math]::Min(80, $rawInput.Length))
+    }
 }
 
 $bodyText = Get-Body -ToolName $ToolName -FilePath $FilePath -EventMessage $EventMessage
 
-# WPF mini notification window
+# ============================================================
+# WPF window
+# ============================================================
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+
+# Position near cursor (multi-monitor aware), DPI aware
+Add-Type -AssemblyName System.Windows.Forms
+$cursor  = [System.Windows.Forms.Cursor]::Position
+$screen  = [System.Windows.Forms.Screen]::FromPoint($cursor)
+$wa      = $screen.WorkingArea
+
+# DPI factor: WinForms is in physical pixels, WPF is in logical units
+$g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
+$dpiX = $g.DpiX / 96.0
+$dpiY = $g.DpiY / 96.0
+$g.Dispose()
+
+$workWidth  = $wa.Width  / $dpiX
+$workHeight = $wa.Height / $dpiY
+$workLeft   = $wa.Left   / $dpiX
+$workTop    = $wa.Top    / $dpiY
 
 $window = New-Object System.Windows.Window
 $window.Width  = 340
@@ -62,17 +78,14 @@ $window.Topmost = $true
 $window.ShowInTaskbar = $false
 $window.WindowStartupLocation = 'Manual'
 
-# Target position: bottom-right of primary monitor
-$workArea = [System.Windows.SystemParameters]::WorkArea
-$targetLeft = $workArea.Width  - $window.Width  - 16
-$targetTop  = $workArea.Height - $window.Height - 16
+$targetLeft = $workLeft + $workWidth  - $window.Width  - 16
+$targetTop  = $workTop  + $workHeight - $window.Height - 16
 
-# Start below screen, invisible
 $window.Left   = $targetLeft
-$window.Top    = $workArea.Height + 40
+$window.Top    = $workTop + $workHeight + 40
 $window.Opacity = 0
 
-# Build the visual tree
+# Build visual tree
 $border = New-Object System.Windows.Controls.Border
 $border.CornerRadius = New-Object System.Windows.CornerRadius(8)
 $border.Background = New-Object System.Windows.Media.SolidColorBrush("#E81A1A1A")
@@ -96,13 +109,13 @@ $bodyBlock.TextWrapping = 'Wrap'
 $bodyBlock.Margin = New-Object System.Windows.Thickness(0, 4, 0, 0)
 $bodyBlock.MaxHeight = 50
 
-$stack.AddChild($titleBlock) | Out-Null
-$stack.AddChild($bodyBlock)  | Out-Null
+$stack.Children.Add($titleBlock) | Out-Null
+$stack.Children.Add($bodyBlock)  | Out-Null
 $border.Child = $stack
 $window.Content = $border
 
 # ============================================================
-# Animation helpers
+# Animation
 # ============================================================
 function New-DoubleAnimation {
     param($From, $To, $DurationMs, [string]$Easing = 'EaseOut')
@@ -110,21 +123,19 @@ function New-DoubleAnimation {
     $anim.From = $From
     $anim.To   = $To
     $anim.Duration = [TimeSpan]::FromMilliseconds($DurationMs)
-    if ($Easing -eq 'EaseOut') {
-        $ease = New-Object System.Windows.Media.Animation.CubicEase
-        $ease.EasingMode = [System.Windows.Media.Animation.EasingMode]::EaseOut
-        $anim.EasingFunction = $ease
-    } elseif ($Easing -eq 'EaseIn') {
-        $ease = New-Object System.Windows.Media.Animation.CubicEase
-        $ease.EasingMode = [System.Windows.Media.Animation.EasingMode]::EaseIn
-        $anim.EasingFunction = $ease
+    $ease = New-Object System.Windows.Media.Animation.CubicEase
+    $ease.EasingMode = if ($Easing -eq 'EaseIn') {
+        [System.Windows.Media.Animation.EasingMode]::EaseIn
+    } else {
+        [System.Windows.Media.Animation.EasingMode]::EaseOut
     }
+    $anim.EasingFunction = $ease
     return $anim
 }
 
-# Exit animation (fade out + slide down)
 function Invoke-ExitAnimation {
-    $slide = New-DoubleAnimation $window.Top ($workArea.Height + 40) $ExitDuration 'EaseIn'
+    $timer.Stop()
+    $slide = New-DoubleAnimation $window.Top ($workTop + $workHeight + 40) $ExitDuration 'EaseIn'
     $fade  = New-DoubleAnimation $window.Opacity 0 $ExitDuration 'EaseIn'
     $propTop = New-Object System.Windows.PropertyPath("Top")
     $propOpacity = New-Object System.Windows.PropertyPath("Opacity")
@@ -140,7 +151,6 @@ function Invoke-ExitAnimation {
     $sb.Begin()
 }
 
-# Entrance animation (slide up + fade in) on window loaded
 $window.Add_Loaded({
     $slide = New-DoubleAnimation $window.Top $targetTop $EnterDuration 'EaseOut'
     $fade  = New-DoubleAnimation 0 1 $EnterDuration 'EaseOut'
@@ -157,22 +167,13 @@ $window.Add_Loaded({
     $sb.Begin()
 })
 
-# Click to dismiss (with exit animation)
-$border.Add_MouseLeftButtonDown({
-    $timer.Stop()
-    Invoke-ExitAnimation
-})
+$border.Add_MouseLeftButtonDown({ Invoke-ExitAnimation })
 
-# Auto-close timer
 $timer = New-Object System.Windows.Threading.DispatcherTimer
 $timer.Interval = [TimeSpan]::FromSeconds($DisplaySeconds)
-$timer.Add_Tick({
-    $timer.Stop()
-    Invoke-ExitAnimation
-})
+$timer.Add_Tick({ Invoke-ExitAnimation })
 $timer.Start()
 
-# Show the window
 $window.ShowDialog() | Out-Null
-
+$timer.Stop()
 exit 0
