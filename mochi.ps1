@@ -7,6 +7,7 @@ $Title = "Mochi"
 $DisplaySeconds = 5
 $EnterDuration  = 400
 $ExitDuration   = 250
+$Sound = $false                 # set to $true to play a system sound on notification
 
 function Get-Body {
     param($ToolName, $FilePath, $EventMessage)
@@ -156,6 +157,7 @@ function Invoke-ExitAnimation {
 }
 
 $window.Add_Loaded({
+    if ($Sound) { [System.Media.SystemSounds]::Asterisk.Play() }
     $slide = New-DoubleAnimation $window.Top $targetTop $EnterDuration 'EaseOut'
     $fade  = New-DoubleAnimation 0 1 $EnterDuration 'EaseOut'
     $propTop = New-Object System.Windows.PropertyPath("Top")
