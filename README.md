@@ -187,6 +187,14 @@ $ExitDuration   = 250         # 出场动画时长 ms
 入场动画：窗口从屏幕外向上滑入 + 淡入（CubicEase 缓动）  
 出场动画：窗口向下滑出 + 淡出（定时或点击触发）
 
+### 声音
+
+```powershell
+$Sound = $false               # 设为 $true 弹窗时播放系统提示音
+```
+
+使用 Windows 内置的 `SystemSounds.Asterisk`，零依赖。可改为 `Hand`、`Beep`、`Question`。
+
 ### 外观
 
 窗口颜色、大小、圆角等均可修改，见脚本中 WPF 相关部分（`#E81A1A1A` 为背景色，`#33FFFFFF` 为边框色）。
@@ -199,7 +207,7 @@ $ExitDuration   = 250         # 出场动画时长 ms
 | 报错 "路径中具有非法字符" | 路径含空格被拆分 | 换用 8.3 短路径（见安装第二步） |
 | 弹窗一闪而过 | 停留时间太短 | 增大 `$timer.Interval` |
 | 弹窗不显示内容 | stdin JSON 解析失败 | 检查 `Get-Body` 函数逻辑 |
-| 弹窗位置不对 | 多显示器 | 脚本默认用主显示器工作区，可手动改坐标 |
+| 弹窗位置不对 | 多显示器 | 已支持跟随光标所在屏幕，DPI 自动适配 |
 
 ## 工作原理
 
@@ -213,8 +221,9 @@ Claude Code 触发 Hook 事件
         ├─ 提取 tool_name / file_path / message
         ├─ 自定义文案（Get-Body 函数）
         ├─ 用 WPF 渲染圆角深色窗口        ← .NET Framework 内置
+        ├─ 定位到光标所在屏幕的右下角          ← 多显示器+DPI 适配
+        ├─ 可选声音提示                    ← SystemSounds
         ├─ 入场动画：Storyboard 滑入+淡入  ← 400ms CubicEase
-        ├─ 定位到屏幕右下角
         ├─ 点击 → 出场动画（滑出+淡出）→ 关闭
         └─ 5 秒后 → 出场动画 → 自动关闭
         │
