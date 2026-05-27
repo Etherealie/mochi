@@ -133,7 +133,11 @@ function New-DoubleAnimation {
     return $anim
 }
 
+$exiting = $false
+
 function Invoke-ExitAnimation {
+    if ($exiting) { return }
+    $exiting = $true
     $timer.Stop()
     $slide = New-DoubleAnimation $window.Top ($workTop + $workHeight + 40) $ExitDuration 'EaseIn'
     $fade  = New-DoubleAnimation $window.Opacity 0 $ExitDuration 'EaseIn'
@@ -175,5 +179,9 @@ $timer.Add_Tick({ Invoke-ExitAnimation })
 $timer.Start()
 
 $window.ShowDialog() | Out-Null
+# Cleanup: process exits here, so event handlers don't strictly need unbinding,
+# but explicit cleanup prevents edge cases with lingering dispatcher frames.
 $timer.Stop()
+$timer = $null
+$window = $null
 exit 0
