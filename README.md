@@ -6,7 +6,7 @@
 
 ## 效果
 
-深色圆角小窗口从屏幕右下角弹出，显示 Claude Code 正在使用的工具名称和操作的文件路径，5 秒后自动消失。点击窗口任意位置可立即关闭。
+深色圆角小窗口从屏幕右下角丝滑滑入（淡入+上滑动画），显示 Claude Code 正在使用的工具名称和操作的文件路径。5 秒后自动淡出消失，点击窗口任意位置立即淡出关闭。
 
 ## 环境要求
 
@@ -163,11 +163,16 @@ function Get-Body {
 | `$FilePath` | `tool_input.file_path` | 操作文件路径，可能为空 |
 | `$EventMessage` | `message` | Claude Code 原始消息，可能为空 |
 
-### 停留时间
+### 停留时间与动画
 
 ```powershell
-$timer.Interval = [TimeSpan]::FromSeconds(5)   # 默认 5 秒
+$DisplaySeconds = 5           # 停留时间（默认 5 秒）
+$EnterDuration  = 400         # 入场动画时长 ms
+$ExitDuration   = 250         # 出场动画时长 ms
 ```
+
+入场动画：窗口从屏幕外向上滑入 + 淡入（CubicEase 缓动）  
+出场动画：窗口向下滑出 + 淡出（定时或点击触发）
 
 ### 外观
 
@@ -195,9 +200,10 @@ Claude Code 触发 Hook 事件
         ├─ 提取 tool_name / file_path / message
         ├─ 自定义文案（Get-Body 函数）
         ├─ 用 WPF 渲染圆角深色窗口        ← .NET Framework 内置
+        ├─ 入场动画：Storyboard 滑入+淡入  ← 400ms CubicEase
         ├─ 定位到屏幕右下角
-        ├─ 点击任意位置立即关闭
-        └─ 5 秒后 DispatcherTimer 自动关闭
+        ├─ 点击 → 出场动画（滑出+淡出）→ 关闭
+        └─ 5 秒后 → 出场动画 → 自动关闭
         │
         ▼
   exit 0                                ← 始终放行，不阻塞 Claude Code

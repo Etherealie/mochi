@@ -20,6 +20,13 @@ function Get-Body {
 }
 
 # ============================================================
+# Animation settings
+# ============================================================
+$DisplaySeconds = 5
+$EnterDuration  = 400   # ms, entrance slide + fade
+$ExitDuration   = 250   # ms, exit fade
+
+# ============================================================
 # Implementation
 # ============================================================
 
@@ -43,7 +50,7 @@ if ($rawInput) {
 $bodyText = Get-Body -ToolName $ToolName -FilePath $FilePath -EventMessage $EventMessage
 
 # WPF mini notification window
-Add-Type -AssemblyName PresentationFramework, WindowsBase
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
 $window = New-Object System.Windows.Window
 $window.Width  = 340
@@ -55,10 +62,15 @@ $window.Topmost = $true
 $window.ShowInTaskbar = $false
 $window.WindowStartupLocation = 'Manual'
 
-# Position at bottom-right of primary monitor
+# Target position: bottom-right of primary monitor
 $workArea = [System.Windows.SystemParameters]::WorkArea
-$window.Left = $workArea.Width  - $window.Width  - 16
-$window.Top  = $workArea.Height - $window.Height - 16
+$targetLeft = $workArea.Width  - $window.Width  - 16
+$targetTop  = $workArea.Height - $window.Height - 16
+
+# Start below screen, invisible
+$window.Left   = $targetLeft
+$window.Top    = $workArea.Height + 40
+$window.Opacity = 0
 
 # Build the visual tree
 $border = New-Object System.Windows.Controls.Border
@@ -87,17 +99,80 @@ $bodyBlock.MaxHeight = 50
 $stack.AddChild($titleBlock) | Out-Null
 $stack.AddChild($bodyBlock)  | Out-Null
 $border.Child = $stack
-# Click to dismiss
-$border.Add_MouseLeftButtonDown({ $window.Close() })
 $window.Content = $border
 
-# Auto-close via a dispatcher timer
+# ============================================================
+# Animation helpers
+# ============================================================
+function New-DoubleAnimation {
+    param($From, $To, $DurationMs, [string]$Easing = 'EaseOut')
+    $anim = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $anim.From = $From
+    $anim.To   = $To
+    $anim.Duration = [TimeSpan]::FromMilliseconds($DurationMs)
+    if ($Easing -eq 'EaseOut') {
+        $ease = New-Object System.Windows.Media.Animation.CubicEase
+        $ease.EasingMode = [System.Windows.Media.Animation.EasingMode]::EaseOut
+        $anim.EasingFunction = $ease
+    } elseif ($Easing -eq 'EaseIn') {
+        $ease = New-Object System.Windows.Media.Animation.CubicEase
+        $ease.EasingMode = [System.Windows.Media.Animation.EasingMode]::EaseIn
+        $anim.EasingFunction = $ease
+    }
+    return $anim
+}
+
+# Exit animation (fade out + slide down)
+function Invoke-ExitAnimation {
+    $slide = New-DoubleAnimation $window.Top ($workArea.Height + 40) $ExitDuration 'EaseIn'
+    $fade  = New-DoubleAnimation $window.Opacity 0 $ExitDuration 'EaseIn'
+    $propTop = New-Object System.Windows.PropertyPath("Top")
+    $propOpacity = New-Object System.Windows.PropertyPath("Opacity")
+
+    $sb = New-Object System.Windows.Media.Animation.Storyboard
+    $sb.Children.Add($slide)
+    $sb.Children.Add($fade)
+    [System.Windows.Media.Animation.Storyboard]::SetTarget($slide, $window)
+    [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($slide, $propTop)
+    [System.Windows.Media.Animation.Storyboard]::SetTarget($fade, $window)
+    [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($fade, $propOpacity)
+    $sb.Add_Completed({ $window.Close() })
+    $sb.Begin()
+}
+
+# Entrance animation (slide up + fade in) on window loaded
+$window.Add_Loaded({
+    $slide = New-DoubleAnimation $window.Top $targetTop $EnterDuration 'EaseOut'
+    $fade  = New-DoubleAnimation 0 1 $EnterDuration 'EaseOut'
+    $propTop = New-Object System.Windows.PropertyPath("Top")
+    $propOpacity = New-Object System.Windows.PropertyPath("Opacity")
+
+    $sb = New-Object System.Windows.Media.Animation.Storyboard
+    $sb.Children.Add($slide)
+    $sb.Children.Add($fade)
+    [System.Windows.Media.Animation.Storyboard]::SetTarget($slide, $window)
+    [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($slide, $propTop)
+    [System.Windows.Media.Animation.Storyboard]::SetTarget($fade, $window)
+    [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($fade, $propOpacity)
+    $sb.Begin()
+})
+
+# Click to dismiss (with exit animation)
+$border.Add_MouseLeftButtonDown({
+    $timer.Stop()
+    Invoke-ExitAnimation
+})
+
+# Auto-close timer
 $timer = New-Object System.Windows.Threading.DispatcherTimer
-$timer.Interval = [TimeSpan]::FromSeconds(5)
-$timer.Add_Tick({ $window.Close() })
+$timer.Interval = [TimeSpan]::FromSeconds($DisplaySeconds)
+$timer.Add_Tick({
+    $timer.Stop()
+    Invoke-ExitAnimation
+})
 $timer.Start()
 
-# Show the window (blocks PowerShell until timer closes it, but returns immediately for Claude Code)
+# Show the window
 $window.ShowDialog() | Out-Null
 
 exit 0
