@@ -122,6 +122,19 @@ echo '{"tool_name":"Write","tool_input":{"file_path":"test.txt"}}' | powershell 
 
 如果能看见弹窗，说明脚本本身没问题。
 
+## 全局安装（可选）
+
+上述配置仅对当前项目生效。如果你希望**在任意目录下启动 Claude Code 都触发通知**，将 hooks 配置放入用户级设置文件：
+
+```powershell
+# 编辑全局配置
+notepad $env:USERPROFILE\.claude\settings.json
+```
+
+把 `settings.example.json` 中的 `hooks` 块合并进去即可（路径同样改为绝对短路径）。
+
+**注意**：如果同时配置了全局和项目级 hooks，每次事件会触发**两次**弹窗。建议只保留全局，删除项目级 `.claude/settings.json` 中的 hooks。
+
 ## Hook 事件说明
 
 | 事件 | 触发时机 | 匹配规则 | 典型弹窗内容 |
